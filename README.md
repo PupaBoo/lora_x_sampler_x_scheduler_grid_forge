@@ -21,7 +21,7 @@ This script creates detailed image grids in two operational modes: **XY Grid** f
 
 ## ⚙️ Installation
 
-1. **Clone the repository into your Forge `/extensions/` folder:
+1. Clone the repository into your Forge `/extensions/` folder:
    git clone https://github.com/PupaBoo/Forge-Grid-Sampler-Scheduler
 
 2. Navigate to the project directory:
@@ -57,15 +57,18 @@ This script creates detailed image grids in two operational modes: **XY Grid** f
 4. Click "Generate" to create the grid. Generation progress for each combination and any errors are logged in the terminal. Use the "🛑 Stop Generation" button to interrupt long-running operations.
 
 ## 📁 Output Structure
+
+```bash
 outputs/
 └── 🧪 LoRa x Sampler x Scheduler Grid (Forge)/
-├── cells/ # Individual cell images
-│ ├── LoRAName_W0.50_Sampler_Scheduler_0_0.webp
-│ └── ...
-├── xy_grid_1700000000_001.webp # XY Grid outputs
-├── xy_grid_1700000000_001.png
-├── batch_grid_1700000000_001.webp # Batch Grid outputs
-└── batch_grid_1700000000_001.png
+    ├── cells/                                  # Individual cell images
+    │   ├── LoRAName_W0.50_Sampler_Scheduler_0_0.webp
+    │   └── ...
+    ├── xy_grid_1700000000_001.webp             # XY Grid output (WEBP format)
+    ├── xy_grid_1700000000_001.png              # XY Grid output (PNG format)
+    ├── batch_grid_1700000000_001.webp          # Batch Grid output (WEBP format)
+    └── batch_grid_1700000000_001.png           # Batch Grid output (PNG format)
+```
 
 ## 🛠 Requirements
 
@@ -75,18 +78,18 @@ outputs/
 
 ## ⚡ Technical Features
 
-- **Auto-Correction**: Intelligent name matching for samplers and schedulers
-- **Validation**: Comprehensive configuration validation with helpful error messages
-- **Unicode Support**: Proper handling of special characters and emojis in names
-- **Font Caching**: Optimized performance through font caching mechanisms
-- **Memory Management**: Efficient handling of large grids with auto-scaling
+- **Auto-Correction**: Intelligent name matching for samplers and schedulers.
+- **Validation**: Comprehensive configuration validation with helpful error messages.
+- **Unicode Support**: Proper handling of special characters and emojis in names.
+- **Font Caching**: Optimized performance through font caching mechanisms.
+- **Memory Management**: Efficient handling of large grids with auto-scaling.
 
 ## ⚠️ Limitations
 
-- **Mode Restriction**: Works exclusively in txt2img mode
-- **Resource Intensive**: Large grids may require significant VRAM and processing time
-- **Font Dependency**: Optimal text rendering requires Barlow-SemiBold.ttf availability
-- **Grid Size**: Very large combinations may produce extremely large output files
+- **Mode Restriction**: Works exclusively in txt2img mode.
+- **Resource Intensive**: Large grids may require significant VRAM and processing time.
+- **Font Dependency**: Optimal text rendering requires Barlow-SemiBold.ttf availability.
+- **Grid Size**: Very large combinations may produce extremely large output files.
 
 ## 📜 License
 
@@ -106,35 +109,35 @@ Feedback, bug reports, and feature suggestions are welcome. Please report issues
 
 <table>
   <tr>
-    <td align="center" colspan="2">
+    <td align="center" width="50%">
       <img src="example/batch_grid.webp" height="360"><br>
       <strong style="font-size:22px;">🧩 Batch Grid</strong>
     </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="example/xxy_grid_small_steps.webp" height="280"><br>
-      <strong style="font-size:18px;">📊 Small Steps Grid</strong>
-    </td>
-    <td align="center">
-      <img src="example/xxy_grid_with_trigger_word.webp" height="280"><br>
-      <strong style="font-size:18px;">⚡ With Trigger Word</strong>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="example/xxy_grid_without_trigger_word.webp" height="280"><br>
-      <strong style="font-size:18px;">🚫 Without Trigger Word</strong>
-    </td>
-    <td align="center">
-      <img src="example/xy_grid_huge.webp" height="280"><br>
-      <strong style="font-size:18px;">🪙 Huge Grid</strong>
+    <td align="center" width="50%">
+      <img src="example/xy_grid.webp" height="360"><br>
+      <strong style="font-size:22px;">🔄 XY Grid</strong>
     </td>
   </tr>
   <tr>
     <td align="center" colspan="2">
-      <img src="example/xygrid.webp" height="360"><br>
-      <strong style="font-size:22px;">🔄 XY Grid</strong>
+      <img src="example/xxy_grid_small_steps.webp" height="280"><br>
+      <strong style="font-size:18px;">📊 Small Steps Grid</strong>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="example/xxy_grid_with_trigger_word.webp" height="280"><br>
+      <strong style="font-size:18px;">⚡ With Trigger Word</strong>
+    </td>
+    <td align="center" width="50%">
+      <img src="example/xxy_grid_without_trigger_word.webp" height="280"><br>
+      <strong style="font-size:18px;">🚫 Without Trigger Word</strong>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <img src="example/xy_grid_huge.webp" height="280"><br>
+      <strong style="font-size:18px;">🐋 Huge Grid</strong>
     </td>
   </tr>
 </table>
