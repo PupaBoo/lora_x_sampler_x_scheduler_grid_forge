@@ -798,7 +798,6 @@ def create_grid_image(
 
 
 def save_cell_image(img, save_flag: bool, cells_dir: Path, filename: str):
-    """Сохраняет ячейку, если включен флаг и есть изображение."""
     if save_flag and img:
         cells_dir.mkdir(parents=True, exist_ok=True)
         img.save(cells_dir / filename)
@@ -848,7 +847,6 @@ def update_pairs(action: str,
 
 
 def safe_processed(p, images, seed, subseed, subseed_strength, info, comments):
-    """Создает Processed объект с безопасными строковыми полями"""
     processed = Processed(p, images, seed, subseed,
                           subseed_strength, info, comments)
     if not isinstance(getattr(processed, "info", ""), str):
@@ -1018,13 +1016,13 @@ class Script(scripts.Script):
 
             steps_b = gr.Slider(1, 100, value=35, step=1, label="🚀 Steps")
             cfg_scale_b = gr.Slider(
-                1.0, 30.0, value=5, step=0.1, label="🎯 CFG")
+                1.0, 30.0, value=5, step=1, label="🎯 CFG")
 
             with gr.Row():
                 width_b = gr.Slider(256, 2048, value=832,
-                                    step=64, label="↔️ Width")
+                                    step=1, label="↔️ Width")
                 height_b = gr.Slider(256, 2048, value=1216,
-                                     step=64, label="↕️ Height")
+                                     step=1, label="↕️ Height")
 
             padding_b = gr.Slider(0, 200, value=20, step=1,
                                   label="📏 Cell padding")
