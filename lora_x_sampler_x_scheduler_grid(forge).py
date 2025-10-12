@@ -7,6 +7,7 @@ import unicodedata
 from pathlib import Path
 from typing import List
 import gradio as gr
+import gc
 from PIL import Image, ImageDraw, ImageFont
 import modules.scripts as scripts
 from modules.processing import process_images, Processed
@@ -17,8 +18,7 @@ from modules.shared import state
 
 BASE_DIR = Path(scripts.basedir())
 LORA_DIR = BASE_DIR / "models" / "Lora"
-OUTPUT_ROOT = BASE_DIR / "outputs" / \
-    "🧪 LoRa x Sampler x Scheduler Grid (Forge)"
+OUTPUT_ROOT = BASE_DIR / "outputs" / "lora_sampler_scheduler_grid_forge"
 output_dir = OUTPUT_ROOT
 output_dir.mkdir(parents=True, exist_ok=True)
 cells_dir = output_dir / "cells"
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def normalize_name(name: str) -> str:
     name = unicodedata.normalize("NFKC", name or "")
-    name = name.replace("\u00A0", " ") 
+    name = name.replace("\u00A0", " ")
     name = " ".join(name.strip().split())
     name = name.lower().replace(" ", "_").replace("+", "pp").replace("-", "_")
     return name
@@ -113,7 +113,9 @@ def get_cell_indices(w_idx, s_idx_row, s_idx_col,
 
 def get_next_grid_index(output_root: Path, prefix: str = "grid_") -> str:
 
-    timestamp = int(time.time())
+    output_root.mkdir(parents=True, exist_ok=True)
+    timestamp = int(time.time() * 1000)
+
     pattern = re.compile(
         rf"^{re.escape(prefix)}{timestamp}_(\d+)\.(?:png|webp)$"
     )
@@ -126,7 +128,7 @@ def get_next_grid_index(output_root: Path, prefix: str = "grid_") -> str:
     indices = [int(pattern.match(f.name).group(1)) for f in existing]
     next_idx = max(indices, default=0) + 1
 
-    return f"{timestamp}_{next_idx:03d}"
+    return f"{prefix}{timestamp}_{next_idx:03d}"
 
 
 def determine_grid_orientation(label_pos_dict):
@@ -425,7 +427,8 @@ def safe_lookup(value, lookup_dict, label, manual=False):
     for k, v in lookup_dict.items():
         if k.lower() == value_lower:
             if manual:
-                logging.warning(f"{label} '{value}' not found, replaced with '{v}'")
+                logging.warning(
+                    f"{label} '{value}' not found, replaced with '{v}'")
                 print(f"⚠️ {label} '{value}' autocorrected to '{v}'")
             return v
 
@@ -771,7 +774,9 @@ def create_grid_image(
         row = idx // grid_w
         x0 = margins["⬅️ Left"] + col * (cell_w + padding)
         y0 = margins["⬆️ Top"] + row * (cell_h + padding)
-        canvas.paste(img.resize((cell_w, cell_h)), (x0, y0))
+        resized = img.resize((cell_w, cell_h))
+        canvas.paste(resized, (x0, y0))
+        resized.close()
 
     if show_labels:
         grouped = {side: [] for side in margins}
@@ -896,18 +901,46 @@ class Script(scripts.Script):
                     "⬆️ Top", "⬅️ Left", "➡️ Right"))
 
             with gr.Row():
-                samplers_dropdown = gr.Dropdown(
-                    choices=list(sampler_label_to_name.keys()),
-                    multiselect=True,
-                    value=None,
-                    label="🗳️ Sampler(s)"
-                )
-                schedulers_dropdown = gr.Dropdown(
-                    choices=list(scheduler_label_to_name.keys()),
-                    multiselect=True,
-                    value=None,
-                    label="📆 Scheduler(s)"
-                )
+                with gr.Column():
+                    samplers_dropdown = gr.Dropdown(
+                        choices=list(sampler_label_to_name.keys()),
+                        multiselect=True,
+                        label="🗳️ Sampler(s)"
+                    )
+                    select_all_samplers_btn = gr.Button("✅ Select All")
+                    clear_all_samplers_btn = gr.Button("🧹 Clear All")
+                with gr.Column():
+                    schedulers_dropdown = gr.Dropdown(
+                        choices=list(scheduler_label_to_name.keys()),
+                        multiselect=True,
+                        label="📆 Scheduler(s)"
+                    )
+                    select_all_schedulers_btn = gr.Button("✅ Select All")
+                    clear_all_schedulers_btn = gr.Button("🧹 Clear All")
+
+            select_all_samplers_btn.click(
+                lambda: gr.update(value=list(sampler_label_to_name.keys())),
+                inputs=[],
+                outputs=[samplers_dropdown]
+            )
+
+            clear_all_samplers_btn.click(
+                lambda: gr.update(value=[]),
+                inputs=[],
+                outputs=[samplers_dropdown]
+            )
+
+            select_all_schedulers_btn.click(
+                lambda: gr.update(value=list(scheduler_label_to_name.keys())),
+                inputs=[],
+                outputs=[schedulers_dropdown]
+            )
+
+            clear_all_schedulers_btn.click(
+                lambda: gr.update(value=[]),
+                inputs=[],
+                outputs=[schedulers_dropdown]
+            )
 
             with gr.Row():
                 min_w = gr.Textbox(label="⬅️ Weight from",
@@ -1140,6 +1173,10 @@ class Script(scripts.Script):
 
         print(f"🏁 Generation started in mode: {mode}", flush=True)
 
+        if state.interrupted:
+            print("🧹 Resetting interrupted state before start", flush=True)
+            state.interrupted = False
+
         if mode == "XY Grid":
             if not (str(pos_prompt).strip() or str(neg_prompt).strip()):
                 error_messages.append(
@@ -1209,6 +1246,8 @@ class Script(scripts.Script):
 
             p.seed = final_seed
             p.extra_generation_params = {"seed": final_seed}
+
+            gc.collect()
 
             return safe_processed(
                 p, results, final_seed, final_subseed, final_subseed_strength,
@@ -1292,6 +1331,13 @@ class Script(scripts.Script):
             for w_idx, weight in enumerate(current_weights):
                 for s_idx_row, scheduler_label in enumerate(current_schedulers):
                     for s_idx_col, sampler_label in enumerate(current_samplers):
+
+                        if state.interrupted:
+                            print("🛑 Interrupted by user.", flush=True)
+                            logger.warning(
+                                "🛑 XY Grid generation interrupted by user.")
+                            break
+
                         sampler_name = sampler_label
                         scheduler_name = scheduler_label
 
@@ -1299,10 +1345,8 @@ class Script(scripts.Script):
                         trigger_info = f", Trigger = '{trigger_word}'" if trigger_word else ""
                         print(
                             f"🔄[{current_gen_count}/{total_generations}] "
-                            f"Sampler = '{sampler_name}', "
-                            f"Scheduler = '{scheduler_name}', "
-                            f"LoRA = '{lora_dropdown_xy}', "
-                            f"Weight = {weight:.2f}{trigger_info}, "
+                            f"Sampler = '{sampler_name}', Scheduler = '{scheduler_name}', "
+                            f"LoRA = '{lora_dropdown_xy}', Weight = {weight:.2f}{trigger_info}, "
                             f"Seed = {p.seed}",
                             flush=True
                         )
@@ -1322,31 +1366,40 @@ class Script(scripts.Script):
                             final_seed = seed_used
                             final_subseed = seed_used
                             final_subseed_strength = 0.0
-
-                        p.extra_generation_params = p.extra_generation_params or {}
-                        p.extra_generation_params["seed"] = seed_used
+                            p.extra_generation_params = p.extra_generation_params or {}
+                            p.extra_generation_params["seed"] = seed_used
 
                         row_index, col_index = get_cell_indices(
-                            w_idx,
-                            s_idx_row,
-                            s_idx_col,
+                            w_idx, s_idx_row, s_idx_col,
                             orientation,
                             len(current_samplers),
                             len(current_schedulers),
                             len(current_weights)
                         )
-
-                        assert 0 <= row_index < grid_rows and 0 <= col_index < grid_cols, (
-                            f"Out of bounds: row={row_index}/{grid_rows}, "
-                            f"col={col_index}/{grid_cols}"
-                        )
-
                         cells_2d[row_index][col_index] = img
 
+                        # 💾 сохраняем клетку, если включено
                         if save_cells and img:
-                            cell_filename = f"{lora_dropdown_xy}_W{weight:.2f}_S{sampler_name}_H{scheduler_name}_{row_index}_{col_index}.webp"
+                            cell_filename = (
+                                f"{lora_dropdown_xy}_W{weight:.2f}_S{sampler_name}_"
+                                f"Sch{scheduler_name}_{row_index}_{col_index}.webp"
+                            )
                             save_cell_image(img, save_cells,
                                             cells_dir, cell_filename)
+
+                    if state.interrupted:
+                        break
+                if state.interrupted:
+                    break
+
+            # ✅ Проверка после выхода из всех циклов — корректный выход из run()
+            if state.interrupted:
+                print("🛑 Generation manually stopped by user.", flush=True)
+                logger.warning("🛑 Generation stopped before completion.")
+                return safe_processed(
+                    p, results, p.seed, p.subseed, p.subseed_strength,
+                    "🛑 Generation stopped by user", ""
+                )
 
             all_labels = build_grid_labels(
                 weights=current_weights,
@@ -1362,6 +1415,9 @@ class Script(scripts.Script):
 
             if not validate_cells_for_grid(cells_2d):
                 print("❌ Grid creation aborted due to invalid cells.")
+
+                gc.collect()
+
                 return safe_processed(
                     p, [], p.seed, p.subseed, p.subseed_strength,
                     "Grid creation failed (invalid cells)", ""
@@ -1387,6 +1443,9 @@ class Script(scripts.Script):
 
             if not grid:
                 print("❌ Grid image was not created. Possibly no valid cells.")
+
+                gc.collect()
+
                 return safe_processed(
                     p, [], p.seed, p.subseed, p.subseed_strength,
                     "Grid creation failed", ""
@@ -1403,6 +1462,8 @@ class Script(scripts.Script):
             results.append(grid)
 
             print(f"✅ XY Grid saved: {grid.width}×{grid.height}", flush=True)
+
+            gc.collect()
 
             return safe_processed(p, [grid], sd, sd, 0.0, "✅ XY Grid complete", "")
 
@@ -1434,70 +1495,45 @@ class Script(scripts.Script):
 
             for w_idx, weight in enumerate(current_weights_b):
                 for p_idx, pair_str in enumerate(pairs):
-                    try:
-                        raw_sampler, raw_scheduler = [
-                            x.strip() for x in pair_str.split(",", 1)]
 
-                        is_ui_sampler = raw_sampler in SAMPLER_CHOICES
-                        is_ui_scheduler = raw_scheduler in SCHEDULER_CHOICES
+                    if state.interrupted:
+                        print("🛑 Interrupted by user.", flush=True)
+                        logger.warning(
+                            "🛑 Batch Grid generation interrupted by user.")
+                        break
 
-                        sampler = raw_sampler if is_ui_sampler else safe_lookup(
-                            raw_sampler, sampler_lookup, "Sampler", manual=True
-                        )
-                        scheduler = raw_scheduler if is_ui_scheduler else safe_lookup(
-                            raw_scheduler, scheduler_lookup, "Scheduler", manual=True
-                        )
-
-                        if not sampler or not scheduler:
-                            print(
-                                f"⚠️ The pair '{pair_str}' was not recognized, skipped")
-                            continue
-
-                    except ValueError:
-                        print(f"⚠️ Skipping invalid pair: '{pair_str}'")
-                        continue
-
-                    current_batch_gen_count += 1
-                    trigger_info = f", Trigger = '{trigger_word_b}'" if trigger_word_b else ""
-                    print(
-                        f"🔄[{current_batch_gen_count}/{total_batch_generations}] "
-                        f"Sampler = '{sampler}', Scheduler = '{scheduler}', "
-                        f"LoRA = '{lora_dropdown_b}', Weight = {weight:.2f}{trigger_info}, "
-                        f"Seed = {p.seed}",
-                        flush=True
-                    )
-
-                    img, seed_used = generate_safe_image(
-                        p,
-                        sampler=sampler,
-                        scheduler=scheduler,
-                        weight=weight,
-                        lora_name=lora_dropdown_b,
-                        font_path=font_path,
-                        trigger_word=trigger_word_b,
-                        from_pairs=True
-                    )
-
-                    if seed_used and seed_used != 0:
-                        final_seed = seed_used
-                        final_subseed = seed_used
-                        final_subseed_strength = 0.0
-                        p.extra_generation_params = p.extra_generation_params or {}
-                        p.extra_generation_params["seed"] = seed_used
-
-                    if orientation == "horizontal":
-                        row_index = p_idx
-                        col_index = w_idx
-                    else:
-                        row_index = w_idx
-                        col_index = p_idx
-
-                    cells_for_grid[row_index][col_index] = img
-
+                    ...
                     if save_cells_b and img:
-                        cell_filename = f"{lora_dropdown_b}_W{weight:.2f}_S{sampler}_Sch{scheduler}_{row_index}_{col_index}.webp"
+                        cell_filename = (
+                            f"{lora_dropdown_b}_W{weight:.2f}_S{sampler}_Sch{scheduler}_"
+                            f"{row_index}_{col_index}.webp"
+                        )
                         save_cell_image(img, save_cells_b,
                                         cells_dir, cell_filename)
+
+                if state.interrupted:
+                    break
+
+            if state.interrupted:
+                print("🛑 Generation manually stopped by user.", flush=True)
+                logger.warning("🛑 Generation stopped before completion.")
+                return safe_processed(
+                    p, results, p.seed, p.subseed, p.subseed_strength,
+                    "🛑 Generation stopped by user", ""
+                )
+
+            batch_grid_labels = build_grid_labels(
+                weights=current_weights_b,
+                samplers=None,
+                schedulers=None,
+                orientation=orientation,
+                label_pos_map=label_positions_map_b,
+                lora_name=lora_dropdown_b,
+                mode="Batch",
+                pairs=pairs,
+                trigger_word=trigger_word_b,
+                show_trigger_word=show_trigger_word_b
+            )
 
             batch_grid_labels = build_grid_labels(
                 weights=current_weights_b,
@@ -1537,6 +1573,9 @@ class Script(scripts.Script):
             if not grid:
                 print(
                     "❌ Grid image was not created. Possibly no valid cells.")
+
+                gc.collect()
+
                 return safe_processed(p, [], p.seed, p.subseed,
                                       p.subseed_strength, "Grid creation failed", "")
 
@@ -1552,5 +1591,7 @@ class Script(scripts.Script):
 
             print(
                 f"✅ Batch Grid saved: {grid.width}×{grid.height}", flush=True)
+
+            gc.collect()
 
             return safe_processed(p, [grid], sd, sd, 0.0, "✅ Batch Grid complete", "")
