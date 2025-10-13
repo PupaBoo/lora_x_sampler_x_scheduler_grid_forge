@@ -100,12 +100,15 @@ def get_cached_font(font_path, size):
 
 
 def get_cell_indices(w_idx, s_idx_row, s_idx_col,
-                     orientation, n_samplers, n_schedulers, n_weights):
+                     orientation, n_samplers, n_schedulers, n_weights,
+                     lora_label_side="⬆️ Top"):
+
     if orientation == "horizontal":
         row = s_idx_row * n_samplers + s_idx_col
         col = w_idx
+
     else:
-        row = w_idx
+        row = (n_weights - 1) - w_idx
         col = s_idx_row * n_samplers + s_idx_col
 
     return row, col
@@ -440,21 +443,35 @@ def safe_lookup(value, lookup_dict, label, manual=False):
 
 def apply_params(p, sampler_name, scheduler_name, lora_weight, lora_name, trigger_word):
     current_prompt = str(p.prompt or "").strip()
+
+    current_prompt = re.sub(
+        rf"<lora:{re.escape(lora_name)}:\d+(\.\d+)?>", "", current_prompt
+    )
+
+    current_prompt = re.sub(r"[,\s]+", " ", current_prompt).strip(" ,")
+
     if trigger_word:
-        current_prompt = f"{current_prompt} {trigger_word}".strip()
+        pattern = re.compile(rf"\b{re.escape(trigger_word)}\b", re.IGNORECASE)
+        current_prompt = pattern.sub("", current_prompt).strip(" ,")
 
-    lora_tag = f"<lora:{lora_name}:"
-    if lora_tag not in current_prompt:
-        current_prompt = f"<lora:{lora_name}:{lora_weight:.2f}>, {current_prompt}".strip(
-        )
-    else:
-        current_prompt = re.sub(
-            rf"<lora:{re.escape(lora_name)}:\d+(\.\d+)?>",
-            f"<lora:{lora_name}:{lora_weight:.2f}>",
-            current_prompt
-        )
-    p.prompt = current_prompt
+    if math.isclose(lora_weight, 0.0, abs_tol=1e-6):
+        p.prompt = current_prompt
+        p.sampler_name = sampler_name
+        p.scheduler = scheduler_name
+        return p
 
+    new_prompt_parts = [current_prompt]
+
+    new_prompt_parts.append(f"<lora:{lora_name}:{lora_weight:.2f}>")
+
+    if trigger_word:
+        new_prompt_parts.append(trigger_word)
+
+    clean_prompt = ", ".join(
+        [part.strip(" ,") for part in new_prompt_parts if part.strip()]
+    )
+
+    p.prompt = clean_prompt
     p.sampler_name = sampler_name
     p.scheduler = scheduler_name
 
@@ -1314,13 +1331,22 @@ class Script(scripts.Script):
 
             orientation = determine_grid_orientation(label_positions_map)
 
+            if orientation == "vertical" and lora_label_pos_xy in ["⬅️ Left", "➡️ Right"]:
+                current_weights = list(reversed(current_weights))
+
             if current_samplers:
                 p.sampler_name = current_samplers[0]
             if current_schedulers:
                 p.scheduler = current_schedulers[0]
 
             grid_rows, grid_cols = compute_grid_dimensions(
-                current_weights, current_samplers, current_schedulers, orientation)
+                current_weights, current_samplers, current_schedulers, orientation
+            )
+
+            print(
+                f"🧩 XY Grid layout → rows={grid_rows}, cols={grid_cols}, "
+                f"samplers={len(current_samplers)}, schedulers={len(current_schedulers)}, weights={len(current_weights)}"
+            )
 
             cells_2d = [[None for _ in range(grid_cols)]
                         for _ in range(grid_rows)]
@@ -1374,11 +1400,12 @@ class Script(scripts.Script):
                             orientation,
                             len(current_samplers),
                             len(current_schedulers),
-                            len(current_weights)
+                            len(current_weights),
+                            lora_label_side=lora_label_pos_xy
                         )
+
                         cells_2d[row_index][col_index] = img
 
-                        # 💾 сохраняем клетку, если включено
                         if save_cells and img:
                             cell_filename = (
                                 f"{lora_dropdown_xy}_W{weight:.2f}_S{sampler_name}_"
@@ -1392,7 +1419,6 @@ class Script(scripts.Script):
                 if state.interrupted:
                     break
 
-            # ✅ Проверка после выхода из всех циклов — корректный выход из run()
             if state.interrupted:
                 print("🛑 Generation manually stopped by user.", flush=True)
                 logger.warning("🛑 Generation stopped before completion.")
@@ -1488,6 +1514,8 @@ class Script(scripts.Script):
                 cols = len(pairs)
 
             cells_for_grid = [[None for _ in range(cols)] for _ in range(rows)]
+            print(f"🧩 Batch Grid layout → rows={rows}, cols={cols}, "
+                  f"pairs={len(pairs)}, weights={len(current_weights_b)}")
 
             final_seed = p.seed
             final_subseed = p.subseed
@@ -1502,7 +1530,67 @@ class Script(scripts.Script):
                             "🛑 Batch Grid generation interrupted by user.")
                         break
 
-                    ...
+                    try:
+                        raw_sampler, raw_scheduler = [
+                            x.strip() for x in pair_str.split(",", 1)
+                        ]
+
+                        is_ui_sampler = raw_sampler in SAMPLER_CHOICES
+                        is_ui_scheduler = raw_scheduler in SCHEDULER_CHOICES
+
+                        sampler = raw_sampler if is_ui_sampler else safe_lookup(
+                            raw_sampler, sampler_lookup, "Sampler", manual=True
+                        )
+                        scheduler = raw_scheduler if is_ui_scheduler else safe_lookup(
+                            raw_scheduler, scheduler_lookup, "Scheduler", manual=True
+                        )
+
+                        if not sampler or not scheduler:
+                            print(
+                                f"⚠️ The pair '{pair_str}' was not recognized, skipped")
+                            continue
+
+                    except ValueError:
+                        print(f"⚠️ Skipping invalid pair: '{pair_str}'")
+                        continue
+
+                    current_batch_gen_count += 1
+                    trigger_info = f", Trigger = '{trigger_word_b}'" if trigger_word_b else ""
+                    print(
+                        f"🔄[{current_batch_gen_count}/{total_batch_generations}] "
+                        f"Sampler = '{sampler}', Scheduler = '{scheduler}', "
+                        f"LoRA = '{lora_dropdown_b}', Weight = {weight:.2f}{trigger_info}, "
+                        f"Seed = {p.seed}",
+                        flush=True
+                    )
+
+                    img, seed_used = generate_safe_image(
+                        p,
+                        sampler=sampler,
+                        scheduler=scheduler,
+                        weight=weight,
+                        lora_name=lora_dropdown_b,
+                        font_path=font_path,
+                        trigger_word=trigger_word_b,
+                        from_pairs=True
+                    )
+
+                    if seed_used and seed_used != 0:
+                        final_seed = seed_used
+                        final_subseed = seed_used
+                        final_subseed_strength = 0.0
+                        p.extra_generation_params = p.extra_generation_params or {}
+                        p.extra_generation_params["seed"] = seed_used
+
+                    if orientation == "horizontal":
+                        row_index = p_idx
+                        col_index = w_idx
+                    else:
+                        row_index = w_idx
+                        col_index = p_idx
+
+                    cells_for_grid[row_index][col_index] = img
+
                     if save_cells_b and img:
                         cell_filename = (
                             f"{lora_dropdown_b}_W{weight:.2f}_S{sampler}_Sch{scheduler}_"
@@ -1521,19 +1609,6 @@ class Script(scripts.Script):
                     p, results, p.seed, p.subseed, p.subseed_strength,
                     "🛑 Generation stopped by user", ""
                 )
-
-            batch_grid_labels = build_grid_labels(
-                weights=current_weights_b,
-                samplers=None,
-                schedulers=None,
-                orientation=orientation,
-                label_pos_map=label_positions_map_b,
-                lora_name=lora_dropdown_b,
-                mode="Batch",
-                pairs=pairs,
-                trigger_word=trigger_word_b,
-                show_trigger_word=show_trigger_word_b
-            )
 
             batch_grid_labels = build_grid_labels(
                 weights=current_weights_b,
@@ -1571,13 +1646,11 @@ class Script(scripts.Script):
             )
 
             if not grid:
-                print(
-                    "❌ Grid image was not created. Possibly no valid cells.")
-
+                print("❌ Grid image was not created. Possibly no valid cells.")
                 gc.collect()
-
-                return safe_processed(p, [], p.seed, p.subseed,
-                                      p.subseed_strength, "Grid creation failed", "")
+                return safe_processed(
+                    p, [], p.seed, p.subseed, p.subseed_strength, "Grid creation failed", ""
+                )
 
             total_generations = len(flat_cells)
             grid = downscale_if_needed(grid, total_generations)
@@ -1594,4 +1667,6 @@ class Script(scripts.Script):
 
             gc.collect()
 
-            return safe_processed(p, [grid], sd, sd, 0.0, "✅ Batch Grid complete", "")
+            return safe_processed(
+                p, [grid], sd, sd, 0.0, "✅ Batch Grid complete", ""
+            )
