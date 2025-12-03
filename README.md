@@ -20,19 +20,24 @@ This script creates detailed image grids in two operational modes: **XY Grid** f
 - **🛑 Process Control**: Dedicated stop generation button for long-running operations
 
 ## ⚙️ Installation
+> ❗ **Important:** This is a *script*, not an extension.  
+> Forge only loads `.py` files placed directly inside the `scripts/` directory.
+> After cloning, you **must move the main `.py` file out of the cloned folder** and place it into `/scripts/`.
 
-1. Clone the repository into your Forge `/extensions/` folder:
-   git clone https://github.com/PupaBoo/Forge-Grid-Sampler-Scheduler
+1. Clone the repository into your Forge `/scripts/` folder:
+   git clone https://github.com/PupaBoo/lora_x_sampler_x_scheduler_grid_forge
 
 2. Navigate to the project directory:
    cd Forge-Grid-Sampler-Scheduler
 
 3. Install dependencies:
    pip install -r requirements.txt
+   
+4. Move the script file `lora_x_sampler_x_scheduler_grid(forge).py` from the cloned directory directly into your Forge `/scripts/` folder.
 
-4. (Optional) Place the `Barlow-SemiBold.ttf` font in the `fonts/` folder for improved label display.
+5. (Optional) Place the `Barlow-SemiBold.ttf` font in the `scripts/` folder for improved label display.
 
-5. Restart WebUI: The script will appear in the txt2img scripts dropdown as "🧪 LoRa x Sampler x Scheduler Grid (Forge)"
+6. Restart Forge WebUI.
 
 ## 🚀 Usage
 
